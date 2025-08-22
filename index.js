@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { loadCommands } = require('./handlers/commandHandler');
+const levelSystem = require('./utils/levelSystem');
 
 const client = new Client({
     intents: [
@@ -16,8 +17,8 @@ const client = new Client({
 loadCommands(client);
 
 client.once(Events.ClientReady, () => {
-    console.log(`✅ Bot connecté en tant que ${client.user.tag}!`);
-    console.log(`🌐 Présent sur ${client.guilds.cache.size} serveur(s)`);
+    console.log(`Bot connecté en tant que ${client.user.tag}!`);
+    console.log(`Présent sur ${client.guilds.cache.size} serveur(s)`);
 });
 
 // Gestionnaire d'interactions (commandes slash)
@@ -43,12 +44,36 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
+// Système de niveaux automatique
+client.on('messageCreate', message => {
+    if (message.author.bot) return;
+    if (!message.guild) return;
+    
+    // Éviter le spam - cooldown par utilisateur
+    if (!client.xpCooldowns) client.xpCooldowns = new Map();
+    const cooldownKey = `${message.guild.id}-${message.author.id}`;
+    const now = Date.now();
+    
+    if (client.xpCooldowns.has(cooldownKey)) {
+        const expirationTime = client.xpCooldowns.get(cooldownKey) + 60000; // 1 minute
+        if (now < expirationTime) return;
+    }
+    
+    client.xpCooldowns.set(cooldownKey, now);
+    
+    const result = levelSystem.addXP(message.guild.id, message.author.id);
+    
+    if (result.levelUp) {
+        message.channel.send(`Félicitations ${message.author} ! Tu es maintenant niveau ${result.level} !`);
+    }
+});
+
 // Ancien système de commandes (optionnel, pour compatibilité)
 client.on('messageCreate', message => {
     if (message.author.bot) return;
     
     if (message.content === '!ping') {
-        message.reply('🏓 Pong ! Utilisez `/ping` pour la nouvelle commande slash!');
+        message.reply('Pong ! Utilisez `/ping` pour la nouvelle commande slash!');
     }
 });
 
