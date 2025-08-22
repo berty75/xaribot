@@ -365,20 +365,31 @@ module.exports = {
 
     // === UTILITAIRES ===
     parseDuration(duration) {
-        const match = duration.match(/^(\d+)([smhd])$/);
+        // Accepter plusieurs formats : 1h, 1 h, 1hour, 1hours, etc.
+        const match = duration.toLowerCase().match(/^(\d+)\s*([smhd]|sec|min|hour|day|seconds|minutes|hours|days)s?$/);
         if (!match) return null;
-
+    
         const value = parseInt(match[1]);
         const unit = match[2];
-
+    
         const multipliers = {
             s: 1000,
+            sec: 1000,
+            second: 1000,
+            seconds: 1000,
             m: 60 * 1000,
+            min: 60 * 1000,
+            minute: 60 * 1000,
+            minutes: 60 * 1000,
             h: 60 * 60 * 1000,
-            d: 24 * 60 * 60 * 1000
+            hour: 60 * 60 * 1000,
+            hours: 60 * 60 * 1000,
+            d: 24 * 60 * 60 * 1000,
+            day: 24 * 60 * 60 * 1000,
+            days: 24 * 60 * 60 * 1000
         };
-
-        return value * multipliers[unit];
+    
+        return value * (multipliers[unit] || null);
     },
 
     saveGiveaway(giveaway) {
