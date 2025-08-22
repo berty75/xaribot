@@ -113,10 +113,9 @@ module.exports = {
             .setFooter({ text: `Organisé par ${interaction.user.username}` })
             .setTimestamp();
 
-        const message = await interaction.reply({
-            embeds: [embed],
-            fetchReply: true
-        });
+            const message = await interaction.reply({
+                embeds: [embed]
+            }).then(() => interaction.fetchReply());;
 
         // Ajouter la réaction
         await message.react('🎉');

@@ -16,6 +16,7 @@
     "ffmpeg-static": "^5.2.0",
     "node-opus": "^0.3.3",
     "play-dl": "^1.9.7",
+    "qrcode": "^1.5.4",
     "ytdl-core": "^4.11.0"
   }
 }
