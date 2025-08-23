@@ -78,7 +78,6 @@ module.exports = {
         }
     },
 
-    // === JEUX ORIGINAUX ===
     async handleRPS(interaction) {
         const row = new ActionRowBuilder()
             .addComponents(
@@ -107,7 +106,7 @@ module.exports = {
         await interaction.reply({ embeds: [embed], components: [row] });
 
         const filter = i => i.user.id === interaction.user.id && i.customId.startsWith('rps_');
-        const collector = interaction.channel.createMessageComponentCollector({ filter, time: 30000 });
+        const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 }); // 1 minute au lieu de 30 secondes
 
         collector.on('collect', async i => {
             const userChoice = i.customId.split('_')[1];
@@ -129,14 +128,12 @@ module.exports = {
                 (userChoice === 'scissors' && botChoice === 'paper')
             ) {
                 result = 'Vous gagnez !';
-                // Récompense en cas de victoire
                 const userData = this.getUserData(i.user.id, i.guild.id);
                 userData.coins = (userData.coins || 0) + 25;
                 userData.xp = (userData.xp || 0) + 10;
                 this.saveUserData(i.user.id, i.guild.id, userData);
             } else {
                 result = 'Vous perdez !';
-                // Petite récompense de consolation
                 const userData = this.getUserData(i.user.id, i.guild.id);
                 userData.xp = (userData.xp || 0) + 5;
                 this.saveUserData(i.user.id, i.guild.id, userData);
@@ -156,6 +153,7 @@ module.exports = {
             }
 
             await i.update({ embeds: [resultEmbed], components: [] });
+            collector.stop();
         });
     },
 
@@ -175,6 +173,21 @@ module.exports = {
                 question: "Qui a peint la Joconde ?",
                 options: ["Picasso", "Van Gogh", "Da Vinci", "Monet"],
                 correct: 2
+            },
+            {
+                question: "Quelle est la planète la plus proche du soleil ?",
+                options: ["Vénus", "Mercure", "Mars", "Terre"],
+                correct: 1
+            },
+            {
+                question: "En quelle année l'homme a-t-il marché sur la lune ?",
+                options: ["1967", "1969", "1971", "1973"],
+                correct: 1
+            },
+            {
+                question: "Quel est le plus grand océan du monde ?",
+                options: ["Atlantique", "Indien", "Arctique", "Pacifique"],
+                correct: 3
             }
         ];
 
@@ -204,7 +217,6 @@ module.exports = {
             const choiceIndex = parseInt(i.customId.split('_')[1]);
             const isCorrect = choiceIndex === randomQuestion.correct;
 
-            // Récompenses
             const userData = this.getUserData(i.user.id, i.guild.id);
             if (isCorrect) {
                 userData.coins = (userData.coins || 0) + 50;
@@ -224,6 +236,7 @@ module.exports = {
             }
 
             await i.update({ embeds: [resultEmbed], components: [] });
+            collector.stop();
         });
     },
 
@@ -271,7 +284,6 @@ module.exports = {
                 if (userSequence.length === sequence.length) {
                     const isCorrect = JSON.stringify(userSequence) === JSON.stringify(sequence);
                     
-                    // Récompenses
                     const userData = this.getUserData(i.user.id, i.guild.id);
                     if (isCorrect) {
                         userData.coins = (userData.coins || 0) + 100;
@@ -299,7 +311,6 @@ module.exports = {
         }, 5000);
     },
 
-    // === SYSTÈME ADDICTIF ===
     async handleDaily(interaction) {
         const userData = this.getUserData(interaction.user.id, interaction.guild.id);
         const now = Date.now();
@@ -319,15 +330,14 @@ module.exports = {
         userData.lastDaily = now;
         userData.streak = userData.streak || 0;
         
-        // Vérifier si c'est consécutif (moins de 48h depuis le dernier daily)
         if (now - (userData.lastDaily || 0) < 48 * 60 * 60 * 1000) {
             userData.streak++;
         } else {
-            userData.streak = 1; // Reset streak
+            userData.streak = 1;
         }
         
         const baseReward = 100;
-        const coinsEarned = baseReward * Math.min(userData.streak, 7); // Max 7x multiplier
+        const coinsEarned = baseReward * Math.min(userData.streak, 7);
         const xpEarned = 50 * userData.streak;
         
         userData.coins = (userData.coins || 0) + coinsEarned;
@@ -416,7 +426,6 @@ module.exports = {
             
         await interaction.reply({ embeds: [embed] });
         
-        // Notification spéciale pour les objets rares
         if (foundItem.name === 'Mythique' || foundItem.name === 'Légendaire') {
             setTimeout(() => {
                 interaction.followUp({
@@ -454,15 +463,15 @@ module.exports = {
                     .setEmoji('❌')
                     .setStyle(ButtonStyle.Danger)
             );
-            
-            const message = await interaction.reply({
-                content: `${opponent}`,
-                embeds: [challengeEmbed],
-                components: [row]
-            }).then(() => interaction.fetchReply());
         
-        const filter = i => i.user.id === opponent.id;
-        const collector = message.createMessageComponentCollector({ filter, time: 60000 });
+        await interaction.reply({
+            content: `${opponent}`,
+            embeds: [challengeEmbed],
+            components: [row]
+        });
+        
+        const filter = i => i.user.id === opponent.id && (i.customId === 'accept_battle' || i.customId === 'decline_battle');
+        const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 });
         
         collector.on('collect', async i => {
             if (i.customId === 'accept_battle') {
@@ -474,6 +483,7 @@ module.exports = {
                     components: []
                 });
             }
+            collector.stop();
         });
         
         collector.on('end', collected => {
@@ -491,15 +501,152 @@ module.exports = {
         const challengerData = this.getUserData(challenger.id, interaction.guild.id);
         const opponentData = this.getUserData(opponent.id, interaction.guild.id);
         
-        // Combat simulé basé sur les stats
         const challengerPower = (challengerData.xp || 100) + (Object.keys(challengerData.inventory || {}).length * 50);
         const opponentPower = (opponentData.xp || 100) + (Object.keys(opponentData.inventory || {}).length * 50);
         
-        const random = Math.random();
-        const challengerWinChance = challengerPower / (challengerPower + opponentPower);
+        // Stocker l'état du combat
+        this.battleState = {
+            challenger,
+            opponent,
+            challengerPower,
+            opponentPower,
+            challengerScore: 0,
+            opponentScore: 0,
+            round: 1
+        };
         
-        const winner = random < challengerWinChance ? challenger : opponent;
-        const loser = winner === challenger ? opponent : challenger;
+        await this.playRound(interaction);
+    },
+
+    async playRound(interaction) {
+        const state = this.battleState;
+        
+        if (state.round > 3 || state.challengerScore === 2 || state.opponentScore === 2) {
+            return this.finishBattle(interaction);
+        }
+        
+        const battleEmbed = new EmbedBuilder()
+            .setTitle(`Combat - Manche ${state.round}/3`)
+            .setDescription(`${state.challenger.username} vs ${state.opponent.username}\n\nScore: ${state.challengerScore} - ${state.opponentScore}`)
+            .addFields(
+                { name: 'Puissance', value: `${state.challenger.username}: ${state.challengerPower}\n${state.opponent.username}: ${state.opponentPower}`, inline: true }
+            )
+            .setColor(0xFF6B35);
+            
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`round_rock_${state.round}`)
+                    .setLabel('Pierre')
+                    .setEmoji('🗿')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId(`round_paper_${state.round}`)
+                    .setLabel('Papier')
+                    .setEmoji('📄')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId(`round_scissors_${state.round}`)
+                    .setLabel('Ciseaux')
+                    .setEmoji('✂️')
+                    .setStyle(ButtonStyle.Primary)
+            );
+            
+        // Pour la première manche, utiliser update, sinon utiliser followUp
+        if (state.round === 1) {
+            await interaction.update({
+                content: `Manche ${state.round} - Faites vos choix!`,
+                embeds: [battleEmbed],
+                components: [row]
+            });
+        } else {
+            await interaction.followUp({
+                content: `Manche ${state.round} - Faites vos choix!`,
+                embeds: [battleEmbed],
+                components: [row]
+            });
+        }
+        
+        const choices = {};
+        const filter = i => (i.user.id === state.challenger.id || i.user.id === state.opponent.id) && i.customId.startsWith(`round_`);
+        const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 }); // 1 minute
+        
+        collector.on('collect', async i => {
+            const choice = i.customId.split('_')[1];
+            choices[i.user.id] = choice;
+            
+            if (Object.keys(choices).length === 2) {
+                collector.stop();
+                
+                const challengerChoice = choices[state.challenger.id];
+                const opponentChoice = choices[state.opponent.id];
+                
+                const choiceEmojis = {
+                    rock: '🗿',
+                    paper: '📄',
+                    scissors: '✂️'
+                };
+                
+                let roundWinner = null;
+                if (challengerChoice === opponentChoice) {
+                    roundWinner = 'tie';
+                } else if (
+                    (challengerChoice === 'rock' && opponentChoice === 'scissors') ||
+                    (challengerChoice === 'paper' && opponentChoice === 'rock') ||
+                    (challengerChoice === 'scissors' && opponentChoice === 'paper')
+                ) {
+                    roundWinner = state.challenger;
+                    state.challengerScore++;
+                } else {
+                    roundWinner = state.opponent;
+                    state.opponentScore++;
+                }
+                
+                const resultEmbed = new EmbedBuilder()
+                    .setTitle(`Résultat Manche ${state.round}`)
+                    .addFields(
+                        { name: state.challenger.username, value: `${choiceEmojis[challengerChoice]}`, inline: true },
+                        { name: 'VS', value: '⚔️', inline: true },
+                        { name: state.opponent.username, value: `${choiceEmojis[opponentChoice]}`, inline: true },
+                        { name: 'Vainqueur', value: roundWinner === 'tie' ? 'Égalité!' : `${roundWinner.username}`, inline: false },
+                        { name: 'Score', value: `${state.challengerScore} - ${state.opponentScore}`, inline: false }
+                    )
+                    .setColor(roundWinner === 'tie' ? 0xFFFF00 : 0x00FF00);
+                    
+                await i.update({
+                    content: '',
+                    embeds: [resultEmbed],
+                    components: []
+                });
+                
+                state.round++;
+                
+                setTimeout(() => {
+                    if (state.round > 3 || state.challengerScore === 2 || state.opponentScore === 2) {
+                        this.finishBattle(interaction);
+                    } else {
+                        this.playRound(interaction);
+                    }
+                }, 2000);
+            } else {
+                await i.deferUpdate();
+            }
+        });
+        
+        collector.on('end', collected => {
+            if (collected.size < 2) {
+                interaction.followUp({
+                    content: 'Combat annulé - temps écoulé'
+                });
+                delete this.battleState;
+            }
+        });
+    },
+    
+    async finishBattle(interaction) {
+        const state = this.battleState;
+        const winner = state.challengerScore > state.opponentScore ? state.challenger : state.opponent;
+        const loser = winner === state.challenger ? state.opponent : state.challenger;
         
         const winnerData = this.getUserData(winner.id, interaction.guild.id);
         const loserData = this.getUserData(loser.id, interaction.guild.id);
@@ -509,27 +656,26 @@ module.exports = {
         winnerData.xp = (winnerData.xp || 0) + 50;
         winnerData.wins = (winnerData.wins || 0) + 1;
         
-        loserData.xp = (loserData.xp || 0) + 15; // Récompense de consolation
+        loserData.xp = (loserData.xp || 0) + 15;
         loserData.losses = (loserData.losses || 0) + 1;
         
         this.saveUserData(winner.id, interaction.guild.id, winnerData);
         this.saveUserData(loser.id, interaction.guild.id, loserData);
         
-        const battleEmbed = new EmbedBuilder()
-            .setTitle('Résultat du Combat!')
-            .setDescription(`${winner} remporte la victoire contre ${loser}!`)
+        const finalEmbed = new EmbedBuilder()
+            .setTitle('Combat Terminé!')
+            .setDescription(`${winner.username} remporte le combat ${state.challengerScore}-${state.opponentScore}!`)
             .addFields(
                 { name: 'Vainqueur', value: `${winner}\n+${reward} pièces\n+50 XP\n+1 Victoire`, inline: true },
-                { name: 'Adversaire', value: `${loser}\n+15 XP\n+1 Défaite`, inline: true },
-                { name: 'Stats du combat', value: `Puissance ${challenger.username}: ${challengerPower}\nPuissance ${opponent.username}: ${opponentPower}`, inline: false }
+                { name: 'Adversaire', value: `${loser}\n+15 XP\n+1 Défaite`, inline: true }
             )
             .setColor(0x00FF00);
             
-        await interaction.update({
-            content: '',
-            embeds: [battleEmbed],
-            components: []
+        await interaction.followUp({
+            embeds: [finalEmbed]
         });
+        
+        delete this.battleState;
     },
 
     async handleInventory(interaction) {
@@ -614,7 +760,6 @@ module.exports = {
         await interaction.reply({ embeds: [embed] });
     },
 
-    // Méthodes pour les jeux manquants
     async handleRiddle(interaction) {
         const riddles = [
             {
@@ -644,9 +789,8 @@ module.exports = {
             
         await interaction.reply({ embeds: [embed] });
         
-        // Collecter les réponses
         const filter = m => m.author.id === interaction.user.id;
-        const collector = interaction.channel.createMessageCollector({ filter, time: 30000, max: 1 });
+        const collector = interaction.channel.createMessageComponentCollector({ filter, time: 120000 }); // 2 minutes au lieu de 60 secondes
         
         collector.on('collect', m => {
             if (m.content.toLowerCase().includes(riddle.answer.toLowerCase())) {
@@ -669,10 +813,9 @@ module.exports = {
     },
 
     async handleTrivia(interaction) {
-        return this.handleQuiz(interaction); // Même système que le quiz
+        return this.handleQuiz(interaction);
     },
 
-    // === SYSTÈME DE DONNÉES ===
     getUserData(userId, guildId) {
         const filePath = path.join(__dirname, '../../data/gaming.json');
         let data = {};
@@ -700,7 +843,6 @@ module.exports = {
         const key = `${guildId}-${userId}`;
         data[key] = userData;
         
-        // Créer le dossier si nécessaire
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });

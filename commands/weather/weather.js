@@ -22,17 +22,23 @@ module.exports = {
             // Étape 2: Obtenir météo avec les coordonnées
             const weatherData = await this.getWeatherData(coords.latitude, coords.longitude);
             
+            const weatherCode = weatherData.current.weather_code;
+            const temp = weatherData.current.temperature_2m;
+            const humidity = weatherData.current.relative_humidity_2m;
+            const windSpeed = weatherData.current.wind_speed_10m;
+            
             const embed = new EmbedBuilder()
-                .setTitle(`Météo à ${coords.name}, ${coords.country}`)
+                .setTitle(`🌍 Météo à ${coords.name}, ${coords.country}`)
+                .setDescription(`${this.getWeatherEmoji(weatherCode)} **${temp}°C**`)
                 .addFields(
-                    { name: 'Température', value: `${weatherData.current.temperature_2m}°C`, inline: true },
-                    { name: 'Humidité', value: `${weatherData.current.relative_humidity_2m}%`, inline: true },
-                    { name: 'Vent', value: `${weatherData.current.wind_speed_10m} km/h`, inline: true },
-                    { name: 'Code météo', value: this.getWeatherDescription(weatherData.current.weather_code), inline: false }
+                    { name: '🌡️ Température', value: `${temp}°C`, inline: true },
+                    { name: '💧 Humidité', value: `${humidity}%`, inline: true },
+                    { name: '💨 Vent', value: `${windSpeed} km/h`, inline: true },
+                    { name: 'Code météo', value: this.getWeatherDescription(weatherCode), inline: false }
                 )
-                .setColor(this.getWeatherColor(weatherData.current.temperature_2m))
+                .setColor(this.getWeatherColor(temp))
                 .setTimestamp()
-                .setFooter({ text: 'Données fournies par Open-Meteo (gratuit)' });
+                .setFooter({ text: 'Données fournies par Open-Meteo (gratuit) • Aujourd\'hui à ' + new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) });
 
             await interaction.editReply({ embeds: [embed] });
 
@@ -108,7 +114,9 @@ module.exports = {
             71: 'Neige légère',
             73: 'Neige modérée',
             75: 'Neige forte',
-            95: 'Orage'
+            95: 'Orage',
+            96: 'Orage avec grêle',
+            99: 'Orage violent'
         };
         return descriptions[code] || 'Conditions inconnues';
     },
@@ -118,5 +126,29 @@ module.exports = {
         if (temp <= 10) return 0x4682B4;     // Bleu acier (frais)
         if (temp <= 25) return 0xFFD700;     // Doré (agréable)
         return 0xFF4500;                     // Rouge-orange (chaud)
+    }, 
+
+    getWeatherEmoji(weatherCode) {
+        const weatherEmojis = {
+            0: '☀️',    // Ciel dégagé
+            1: '🌤️',    // Principalement dégagé
+            2: '⛅',    // Partiellement nuageux
+            3: '☁️',    // Couvert
+            45: '🌫️',   // Brouillard
+            48: '🌫️',   // Brouillard givrant
+            51: '🌦️',   // Bruine légère
+            53: '🌦️',   // Bruine modérée
+            55: '🌧️',   // Bruine dense
+            61: '🌧️',   // Pluie légère
+            63: '🌧️',   // Pluie modérée
+            65: '🌧️',   // Pluie forte
+            71: '🌨️',   // Neige légère
+            73: '❄️',   // Neige modérée
+            75: '❄️',   // Neige forte
+            95: '⛈️',   // Orages
+            96: '⛈️',   // Orages avec grêle
+            99: '⛈️'    // Orages violents
+        };
+        return weatherEmojis[weatherCode] || '🌤️';
     }
 };

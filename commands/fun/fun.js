@@ -78,14 +78,6 @@ module.exports = {
                         .setRequired(true)))
         .addSubcommand(subcommand =>
             subcommand
-                .setName('weather')
-                .setDescription('Météo stylée d\'une ville')
-                .addStringOption(option =>
-                    option.setName('city')
-                        .setDescription('Nom de la ville')
-                        .setRequired(true)))
-        .addSubcommand(subcommand =>
-            subcommand
                 .setName('qrcode')
                 .setDescription('Générer un QR code')
                 .addStringOption(option =>
@@ -117,8 +109,6 @@ module.exports = {
                 return this.handleAvatar(interaction);
             case 'reverse':
                 return this.handleReverse(interaction);
-            case 'weather':
-                return this.handleWeather(interaction);
             case 'qrcode':
                 return this.handleQRCode(interaction);
         }
@@ -324,31 +314,6 @@ module.exports = {
             .setColor(0x9966CC);
             
         return interaction.reply({ embeds: [embed] });
-    },
-
-    // === WEATHER ===
-    async handleWeather(interaction) {
-        const city = interaction.options.getString('city');
-        
-        try {
-            // Simuler une API météo (remplacez par une vraie API)
-            const weatherEmojis = ['☀️', '⛅', '🌧️', '⛈️', '🌨️', '🌈'];
-            const randomWeather = weatherEmojis[Math.floor(Math.random() * weatherEmojis.length)];
-            const temp = Math.floor(Math.random() * 30) + 5;
-            
-            const embed = new EmbedBuilder()
-                .setTitle(`🌍 Météo à ${city}`)
-                .setDescription(`${randomWeather} **${temp}°C**`)
-                .addFields(
-                    { name: '🌡️ Température', value: `${temp}°C`, inline: true },
-                    { name: '☁️ Conditions', value: 'Nuageux', inline: true }
-                )
-                .setColor(0x87CEEB);
-                
-            return interaction.reply({ embeds: [embed] });
-        } catch (error) {
-            return interaction.reply('❌ Impossible de récupérer la météo !');
-        }
     },
 
     // === QR CODE ===

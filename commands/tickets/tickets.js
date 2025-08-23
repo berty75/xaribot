@@ -50,15 +50,15 @@ module.exports = {
         
         switch (subcommand) {
             case 'setup':
-                return this.setupTickets(interaction);
+                return await this.setupTickets(interaction);
             case 'close':
-                return this.closeTicket(interaction);
+                return await this.closeTicket(interaction);
             case 'add':
-                return this.addUserToTicket(interaction);
+                return await this.addUserToTicket(interaction);
             case 'remove':
-                return this.removeUserFromTicket(interaction);
+                return await this.removeUserFromTicket(interaction);
             case 'stats':
-                return this.showStats(interaction);
+                return await this.showStats(interaction);
         }
     },
 
@@ -97,6 +97,12 @@ module.exports = {
 
         await interaction.reply({ embeds: [embed], components: [button] });
 
+        // Sauvegarder l'ID du message pour les redémarrages
+        const message = await interaction.fetchReply();
+        config.messageId = message.id;
+        config.channelId = interaction.channel.id;
+        this.saveTicketConfig(config);
+
         // Créer un collector permanent pour les tickets
         const filter = i => i.customId === 'create_ticket';
         const collector = interaction.channel.createMessageComponentCollector({ filter });
@@ -104,12 +110,6 @@ module.exports = {
         collector.on('collect', async i => {
             await this.createTicket(i, category, supportRole);
         });
-
-        // Sauvegarder l'ID du message pour les redémarrages
-        const message = await interaction.fetchReply();
-        config.messageId = message.id;
-        config.channelId = interaction.channel.id;
-        this.saveTicketConfig(config);
     },
 
     async createTicket(interaction, category, supportRole) {
@@ -121,7 +121,7 @@ module.exports = {
         if (existingTicket) {
             return interaction.reply({
                 content: `Vous avez déjà un ticket ouvert : ${existingTicket}`,
-                ephemeral: true
+                flags: 64 // Ephemeral flag
             });
         }
 
@@ -205,7 +205,7 @@ module.exports = {
             // Répondre à l'utilisateur
             await interaction.reply({
                 content: `Votre ticket a été créé : ${ticketChannel}`,
-                ephemeral: true
+                flags: 64 // Ephemeral flag
             });
 
             // Gérer les interactions dans le ticket
@@ -215,7 +215,7 @@ module.exports = {
             console.error('Erreur lors de la création du ticket:', error);
             await interaction.reply({
                 content: 'Une erreur est survenue lors de la création du ticket. Contactez un administrateur.',
-                ephemeral: true
+                flags: 64 // Ephemeral flag
             });
         }
     },
@@ -233,13 +233,90 @@ module.exports = {
         });
 
         // Compter les messages dans le ticket
-        const messageCollector = ticketChannel.createMessageCollector({ 
-            filter: m => !m.author.bot 
+        const messageCollector = ticketChannel.createMessageCollector({
+            filter: m => !m.author.bot
         });
         
         messageCollector.on('collect', message => {
             this.incrementMessageCount(ticketChannel.id);
         });
+    },
+
+    async closeTicket(interaction) {
+        // Vérifier si on est dans un ticket
+        if (!interaction.channel.name.startsWith('ticket-')) {
+            return interaction.reply({
+                content: 'Cette commande ne peut être utilisée que dans un ticket.',
+                flags: 64
+            });
+        }
+
+        await this.closeTicketProcess(interaction, interaction.channel);
+    },
+
+    async addUserToTicket(interaction) {
+        // Vérifier si on est dans un ticket
+        if (!interaction.channel.name.startsWith('ticket-')) {
+            return interaction.reply({
+                content: 'Cette commande ne peut être utilisée que dans un ticket.',
+                flags: 64
+            });
+        }
+
+        const user = interaction.options.getUser('user');
+        
+        try {
+            await interaction.channel.permissionOverwrites.create(user.id, {
+                ViewChannel: true,
+                SendMessages: true,
+                ReadMessageHistory: true,
+                AttachFiles: true
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle('Utilisateur ajouté')
+                .setDescription(`${user} a été ajouté au ticket.`)
+                .setColor(0x00FF00)
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Erreur lors de l\'ajout de l\'utilisateur:', error);
+            await interaction.reply({
+                content: 'Erreur lors de l\'ajout de l\'utilisateur au ticket.',
+                flags: 64
+            });
+        }
+    },
+
+    async removeUserFromTicket(interaction) {
+        // Vérifier si on est dans un ticket
+        if (!interaction.channel.name.startsWith('ticket-')) {
+            return interaction.reply({
+                content: 'Cette commande ne peut être utilisée que dans un ticket.',
+                flags: 64
+            });
+        }
+
+        const user = interaction.options.getUser('user');
+        
+        try {
+            await interaction.channel.permissionOverwrites.delete(user.id);
+
+            const embed = new EmbedBuilder()
+                .setTitle('Utilisateur retiré')
+                .setDescription(`${user} a été retiré du ticket.`)
+                .setColor(0xFF0000)
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Erreur lors du retrait de l\'utilisateur:', error);
+            await interaction.reply({
+                content: 'Erreur lors du retrait de l\'utilisateur du ticket.',
+                flags: 64
+            });
+        }
     },
 
     async claimTicket(interaction, ticketChannel) {
@@ -248,7 +325,7 @@ module.exports = {
         if (ticketData.claimedBy) {
             return interaction.reply({
                 content: 'Ce ticket est déjà pris en charge.',
-                ephemeral: true
+                flags: 64
             });
         }
 
@@ -291,9 +368,9 @@ module.exports = {
         });
 
         const confirmFilter = i => ['confirm_close', 'cancel_close'].includes(i.customId);
-        const confirmCollector = interaction.channel.createMessageComponentCollector({ 
-            filter: confirmFilter, 
-            time: 30000 
+        const confirmCollector = interaction.channel.createMessageComponentCollector({
+            filter: confirmFilter,
+            time: 30000
         });
 
         confirmCollector.on('collect', async i => {
@@ -348,21 +425,6 @@ module.exports = {
             } catch (error) {
                 console.log('Impossible d\'envoyer le MP à l\'utilisateur');
             }
-
-            // Modifier les permissions pour archiver le salon
-            await ticketChannel.edit({
-                name: `${ticketChannel.name}-closed`,
-                permissionOverwrites: [
-                    {
-                        id: interaction.guild.id,
-                        deny: [PermissionFlagsBits.ViewChannel]
-                    },
-                    {
-                        id: ticketData.userId,
-                        deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
-                    }
-                ]
-            });
 
             await interaction.update({
                 content: `Ticket fermé par ${interaction.user}. Le salon sera supprimé dans 10 secondes.`,
@@ -452,6 +514,20 @@ module.exports = {
         }
     },
 
+    saveTicketData(ticketId, data) {
+        const filePath = path.join(__dirname, '../../data/tickets.json');
+        try {
+            let tickets = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            const index = tickets.findIndex(t => t.id === ticketId);
+            if (index !== -1) {
+                tickets[index] = data;
+                fs.writeFileSync(filePath, JSON.stringify(tickets, null, 2));
+            }
+        } catch (error) {
+            console.error('Erreur lors de la sauvegarde:', error);
+        }
+    },
+
     saveTranscript(transcriptData) {
         const filePath = path.join(__dirname, '../../data/transcripts.json');
         let transcripts = [];
@@ -487,13 +563,18 @@ module.exports = {
     },
 
     getTicketStats(guildId) {
-        // Implémentation basique - à améliorer avec une vraie base de données
-        return {
-            open: 0,
-            closed: 0,
-            total: 0,
-            avgDuration: 'N/A',
-            avgMessages: 0
-        };
+        const filePath = path.join(__dirname, '../../data/tickets.json');
+        try {
+            const tickets = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            const guildTickets = tickets.filter(t => t.guildId === guildId);
+            
+            const open = guildTickets.filter(t => t.status === 'open').length;
+            const closed = guildTickets.filter(t => t.status === 'closed').length;
+            const total = guildTickets.length;
+            
+            return { open, closed, total, avgDuration: 'N/A', avgMessages: 0 };
+        } catch (error) {
+            return { open: 0, closed: 0, total: 0, avgDuration: 'N/A', avgMessages: 0 };
+        }
     }
 };
