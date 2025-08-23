@@ -455,12 +455,11 @@ module.exports = {
                     .setStyle(ButtonStyle.Danger)
             );
             
-        const message = await interaction.reply({
-            content: `${opponent}`,
-            embeds: [challengeEmbed],
-            components: [row],
-            fetchReply: true
-        });
+            const message = await interaction.reply({
+                content: `${opponent}`,
+                embeds: [challengeEmbed],
+                components: [row]
+            }).then(() => interaction.fetchReply());
         
         const filter = i => i.user.id === opponent.id;
         const collector = message.createMessageComponentCollector({ filter, time: 60000 });
