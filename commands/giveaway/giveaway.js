@@ -63,7 +63,7 @@ module.exports = {
                             { name: 'Terminés', value: 'ended' },
                             { name: 'Tous', value: 'all' }
                         )))
-        .setDefaultMemberPermissions('0x20'),
+            .setDefaultMemberPermissions('32'),
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
