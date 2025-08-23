@@ -1,95 +1,91 @@
-const { Manager } = require('erela.js');
+const { createAudioPlayer, createAudioResource, joinVoiceChannel, AudioPlayerStatus } = require('@discordjs/voice');
 
-class MusicPlayer {
-    constructor(client) {
-        this.client = client;
-        this.manager = new Manager({
-            nodes: [{
-                host: 'lavalink.nextgencoders.xyz',
-                port: 443,
-                password: 'nextgencoderspvt',
-                secure: true,
-            }],
-            send(id, payload) {
-                const guild = client.guilds.cache.get(id);
-                if (guild) guild.shard.send(payload);
+class RadioPlayer {
+    constructor() {
+        this.connections = new Map();
+        this.stations = {
+            skyrock: {
+                name: 'Skyrock',
+                url: 'http://icecast.skyrock.net/s/natio_mp3_128k',
+                description: 'Première sur le rap - Planète Rap 20h-21h'
             },
-        });
-
-        this.manager
-            .on('nodeConnect', node => console.log(`Lavalink connecté: ${node.options.identifier}`))
-            .on('nodeError', (node, error) => console.error(`Erreur Lavalink ${node.options.identifier}:`, error))
-            .on('trackStart', (player, track) => {
-                const channel = client.channels.cache.get(player.textChannel);
-                channel.send(`Lecture: **${track.title}**`);
-            })
-            .on('queueEnd', player => {
-                const channel = client.channels.cache.get(player.textChannel);
-                channel.send('File d\'attente terminée');
-                player.destroy();
-            });
+            planeterap: {
+                name: 'Planète Rap (Podcast)',
+                url: 'https://skyrock.fm/emissions/planete-rap',
+                description: 'Podcast de l\'émission rap de référence'
+            }
+        };
     }
 
-    init() {
-        this.manager.init(this.client.user.id);
-    }
-
-    async play(interaction, query) {
+    async play(interaction, stationName) {
         const voiceChannel = interaction.member.voice.channel;
         if (!voiceChannel) {
             return interaction.reply('Vous devez être dans un canal vocal !');
         }
 
-        await interaction.deferReply();
+        const station = this.stations[stationName.toLowerCase()];
+        if (!station) {
+            return interaction.reply('Station non trouvée. Utilisez `/radio list` pour voir les stations disponibles.');
+        }
 
         try {
-            const res = await this.manager.search(query, interaction.user);
-            
-            if (res.loadType === 'LOAD_FAILED') {
-                return interaction.editReply('Erreur de chargement');
-            }
-            
-            if (res.loadType === 'NO_MATCHES') {
-                return interaction.editReply('Aucun résultat trouvé');
-            }
+            await interaction.deferReply();
 
-            const player = this.manager.create({
-                guild: interaction.guild.id,
-                voiceChannel: voiceChannel.id,
-                textChannel: interaction.channel.id,
+            const connection = joinVoiceChannel({
+                channelId: voiceChannel.id,
+                guildId: interaction.guild.id,
+                adapterCreator: interaction.guild.voiceAdapterCreator,
             });
 
-            if (player.state !== 'CONNECTED') player.connect();
-
-            player.queue.add(res.tracks[0]);
+            const player = createAudioPlayer();
+            const resource = createAudioResource(station.url);
             
-            if (!player.playing && !player.paused && !player.queue.size) {
-                player.play();
-            }
+            player.play(resource);
+            connection.subscribe(player);
 
-            await interaction.editReply(`Ajouté: **${res.tracks[0].title}**`);
+            this.connections.set(interaction.guild.id, {
+                connection,
+                player,
+                station: station.name
+            });
+
+            await interaction.editReply(`Radio lancée : **${station.name}**\n${station.description}`);
 
         } catch (error) {
-            console.error('Erreur play:', error);
-            await interaction.editReply('Erreur lors de la lecture');
+            console.error('Erreur radio:', error);
+            await interaction.editReply('Erreur lors du lancement de la radio.');
         }
     }
 
-    skip(interaction) {
-        const player = this.manager.get(interaction.guild.id);
-        if (!player) return interaction.reply('Aucune musique en cours');
+    stop(interaction) {
+        const guildConnection = this.connections.get(interaction.guild.id);
+        if (!guildConnection) {
+            return interaction.reply('Aucune radio en cours.');
+        }
+
+        guildConnection.player.stop();
+        guildConnection.connection.destroy();
+        this.connections.delete(interaction.guild.id);
         
-        player.stop();
-        interaction.reply('Musique passée');
+        interaction.reply('Radio arrêtée.');
     }
 
-    stop(interaction) {
-        const player = this.manager.get(interaction.guild.id);
-        if (!player) return interaction.reply('Aucune musique en cours');
-        
-        player.destroy();
-        interaction.reply('Musique arrêtée');
+    list(interaction) {
+        const stationList = Object.entries(this.stations)
+            .map(([key, station]) => `**${key}** - ${station.name}\n${station.description}`)
+            .join('\n\n');
+
+        interaction.reply(`Stations disponibles :\n\n${stationList}\n\nUtilisez \`/radio <nom>\` pour écouter.`);
+    }
+
+    nowPlaying(interaction) {
+        const guildConnection = this.connections.get(interaction.guild.id);
+        if (!guildConnection) {
+            return interaction.reply('Aucune radio en cours.');
+        }
+
+        interaction.reply(`En cours : **${guildConnection.station}**`);
     }
 }
 
-module.exports = MusicPlayer;
+module.exports = new RadioPlayer();
