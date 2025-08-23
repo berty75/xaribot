@@ -66,6 +66,14 @@ module.exports = {
         const category = interaction.options.getChannel('category');
         const supportRole = interaction.options.getRole('support_role');
 
+        // Nettoyer les anciens collectors de ce serveur
+        if (interaction.client.ticketCollectors) {
+            const oldCollector = interaction.client.ticketCollectors.get(interaction.guild.id);
+            if (oldCollector) {
+                oldCollector.stop('new_setup');
+            }
+        }
+
         // Sauvegarder la configuration
         const config = {
             guildId: interaction.guild.id,
@@ -86,10 +94,11 @@ module.exports = {
             .setColor(0x00FF00)
             .setFooter({ text: 'Les tickets sont privés et sécurisés' });
 
+        const uniqueId = `create_ticket_${Date.now()}`;
         const button = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
-                    .setCustomId('create_ticket')
+                    .setCustomId(uniqueId)
                     .setLabel('Créer un Ticket')
                     .setEmoji('🎫')
                     .setStyle(ButtonStyle.Primary)
@@ -97,22 +106,34 @@ module.exports = {
 
         await interaction.reply({ embeds: [embed], components: [button] });
 
-        // Sauvegarder l'ID du message pour les redémarrages
-        const message = await interaction.fetchReply();
-        config.messageId = message.id;
-        config.channelId = interaction.channel.id;
-        this.saveTicketConfig(config);
+        // Créer un nouveau collector avec gestion améliorée
+        const filter = i => i.customId === uniqueId;
+        const collector = interaction.channel.createMessageComponentCollector({ 
+            filter,
+            time: 0 // Pas de timeout
+        });
 
-        // Créer un collector permanent pour les tickets
-        const filter = i => i.customId === 'create_ticket';
-        const collector = interaction.channel.createMessageComponentCollector({ filter });
+        // Sauvegarder le collector pour nettoyage futur
+        if (!interaction.client.ticketCollectors) {
+            interaction.client.ticketCollectors = new Map();
+        }
+        interaction.client.ticketCollectors.set(interaction.guild.id, collector);
 
         collector.on('collect', async i => {
             await this.createTicket(i, category, supportRole);
         });
+
+        collector.on('error', error => {
+            console.error('Erreur collector setup:', error);
+        });
     },
 
     async createTicket(interaction, category, supportRole) {
+        // Empêcher les doubles interactions
+        if (interaction.replied || interaction.deferred) {
+            return;
+        }
+
         // Vérifier si l'utilisateur a déjà un ticket ouvert
         const existingTicket = interaction.guild.channels.cache.find(
             ch => ch.name === `ticket-${interaction.user.id}` && 
@@ -124,9 +145,12 @@ module.exports = {
         if (existingTicket) {
             return interaction.reply({
                 content: `Vous avez déjà un ticket ouvert : ${existingTicket}`,
-                flags: 64 // Ephemeral flag
+                flags: 64
             });
         }
+
+        // Defer la réponse pour éviter les timeouts
+        await interaction.deferReply({ flags: 64 });
 
         try {
             // Créer le salon de ticket
@@ -175,12 +199,12 @@ module.exports = {
             const ticketButtons = new ActionRowBuilder()
                 .addComponents(
                     new ButtonBuilder()
-                        .setCustomId('close_ticket')
+                        .setCustomId(`close_ticket_${ticketChannel.id}`)
                         .setLabel('Fermer le Ticket')
                         .setEmoji('🔒')
                         .setStyle(ButtonStyle.Danger),
                     new ButtonBuilder()
-                        .setCustomId('claim_ticket')
+                        .setCustomId(`claim_ticket_${ticketChannel.id}`)
                         .setLabel('Prendre en Charge')
                         .setEmoji('✋')
                         .setStyle(ButtonStyle.Secondary)
@@ -206,9 +230,8 @@ module.exports = {
             this.saveTicket(ticketData);
 
             // Répondre à l'utilisateur
-            await interaction.reply({
-                content: `Votre ticket a été créé : ${ticketChannel}`,
-                flags: 64 // Ephemeral flag
+            await interaction.editReply({
+                content: `Votre ticket a été créé : ${ticketChannel}`
             });
 
             // Gérer les interactions dans le ticket
@@ -216,49 +239,52 @@ module.exports = {
 
         } catch (error) {
             console.error('Erreur lors de la création du ticket:', error);
-            await interaction.reply({
-                content: 'Une erreur est survenue lors de la création du ticket. Contactez un administrateur.',
-                flags: 64 // Ephemeral flag
+            await interaction.editReply({
+                content: 'Une erreur est survenue lors de la création du ticket. Contactez un administrateur.'
             });
         }
     },
 
     setupTicketCollectors(ticketChannel) {
-        // Collector pour les boutons avec gestion d'erreur améliorée
         const filter = i => {
-            return ['close_ticket', 'claim_ticket'].includes(i.customId) && 
+            return (i.customId.startsWith('close_ticket_') || i.customId.startsWith('claim_ticket_')) && 
                    i.channel.id === ticketChannel.id;
         };
         
         const collector = ticketChannel.createMessageComponentCollector({ 
-            filter, 
+            filter,
             time: 0 // Pas de timeout
         });
-    
+
         collector.on('collect', async i => {
             try {
-                if (i.customId === 'close_ticket') {
+                // Empêcher les doubles interactions
+                if (i.replied || i.deferred) return;
+
+                if (i.customId.startsWith('close_ticket_')) {
                     await this.closeTicketProcess(i, ticketChannel);
-                } else if (i.customId === 'claim_ticket') {
+                } else if (i.customId.startsWith('claim_ticket_')) {
                     await this.claimTicket(i, ticketChannel);
                 }
             } catch (error) {
                 console.error('Erreur collector ticket:', error);
                 try {
-                    await i.reply({
-                        content: 'Erreur temporaire. Utilisez `/ticket close` à la place.',
-                        flags: 64
-                    });
+                    if (!i.replied && !i.deferred) {
+                        await i.reply({
+                            content: 'Erreur temporaire. Utilisez `/ticket close` à la place.',
+                            flags: 64
+                        });
+                    }
                 } catch (replyError) {
                     console.error('Erreur reply:', replyError);
                 }
             }
         });
-    
+
         collector.on('error', error => {
             console.error('Erreur collector:', error);
         });
-    
+
         // Compter les messages dans le ticket
         const messageCollector = ticketChannel.createMessageCollector({
             filter: m => !m.author.bot
@@ -380,11 +406,11 @@ module.exports = {
         const confirmButtons = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
-                    .setCustomId('confirm_close')
+                    .setCustomId(`confirm_close_${ticketChannel.id}`)
                     .setLabel('Confirmer')
                     .setStyle(ButtonStyle.Danger),
                 new ButtonBuilder()
-                    .setCustomId('cancel_close')
+                    .setCustomId(`cancel_close_${ticketChannel.id}`)
                     .setLabel('Annuler')
                     .setStyle(ButtonStyle.Secondary)
             );
@@ -394,14 +420,20 @@ module.exports = {
             components: [confirmButtons]
         });
 
-        const confirmFilter = i => ['confirm_close', 'cancel_close'].includes(i.customId);
+        const confirmFilter = i => {
+            return (i.customId === `confirm_close_${ticketChannel.id}` || 
+                   i.customId === `cancel_close_${ticketChannel.id}`) &&
+                   i.user.id === interaction.user.id;
+        };
+
         const confirmCollector = interaction.channel.createMessageComponentCollector({
             filter: confirmFilter,
-            time: 30000
+            time: 30000,
+            max: 1
         });
 
         confirmCollector.on('collect', async i => {
-            if (i.customId === 'confirm_close') {
+            if (i.customId === `confirm_close_${ticketChannel.id}`) {
                 await this.finalizeTicketClose(i, ticketChannel, ticketData);
             } else {
                 await i.update({
@@ -409,6 +441,20 @@ module.exports = {
                     embeds: [],
                     components: []
                 });
+            }
+        });
+
+        confirmCollector.on('end', async collected => {
+            if (collected.size === 0) {
+                try {
+                    await interaction.editReply({
+                        content: 'Temps écoulé. Fermeture annulée.',
+                        embeds: [],
+                        components: []
+                    });
+                } catch (error) {
+                    console.error('Erreur timeout confirmation:', error);
+                }
             }
         });
     },
@@ -434,6 +480,12 @@ module.exports = {
             };
             
             this.saveTranscript(transcriptData);
+
+            // Marquer le ticket comme fermé
+            ticketData.status = 'closed';
+            ticketData.closedAt = Date.now();
+            ticketData.closedBy = interaction.user.id;
+            this.saveTicketData(ticketChannel.id, ticketData);
 
             // Envoyer un MP à l'utilisateur avec le transcript
             try {
@@ -522,8 +574,15 @@ module.exports = {
         let tickets = [];
         
         try {
-            tickets = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+            tickets = JSON.parse(fileContent);
+            
+            if (!Array.isArray(tickets)) {
+                console.log('Fichier tickets.json corrompu, réinitialisation...');
+                tickets = [];
+            }
         } catch (error) {
+            console.log('Création du fichier tickets.json...');
             tickets = [];
         }
         
@@ -535,9 +594,9 @@ module.exports = {
         const filePath = path.join(__dirname, '../../data/tickets.json');
         try {
             const tickets = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-            return tickets.find(t => t.id === ticketId) || {};
+            return tickets.find(t => t.id === ticketId) || { messages: 0 };
         } catch (error) {
-            return {};
+            return { messages: 0 };
         }
     },
 
