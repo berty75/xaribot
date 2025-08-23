@@ -221,17 +221,41 @@ module.exports = {
     },
 
     setupTicketCollectors(ticketChannel) {
-        const filter = i => ['close_ticket', 'claim_ticket'].includes(i.customId);
-        const collector = ticketChannel.createMessageComponentCollector({ filter });
-
+        // Collector pour les boutons avec gestion d'erreur améliorée
+        const filter = i => {
+            return ['close_ticket', 'claim_ticket'].includes(i.customId) && 
+                   i.channel.id === ticketChannel.id;
+        };
+        
+        const collector = ticketChannel.createMessageComponentCollector({ 
+            filter, 
+            time: 0 // Pas de timeout
+        });
+    
         collector.on('collect', async i => {
-            if (i.customId === 'close_ticket') {
-                await this.closeTicketProcess(i, ticketChannel);
-            } else if (i.customId === 'claim_ticket') {
-                await this.claimTicket(i, ticketChannel);
+            try {
+                if (i.customId === 'close_ticket') {
+                    await this.closeTicketProcess(i, ticketChannel);
+                } else if (i.customId === 'claim_ticket') {
+                    await this.claimTicket(i, ticketChannel);
+                }
+            } catch (error) {
+                console.error('Erreur collector ticket:', error);
+                try {
+                    await i.reply({
+                        content: 'Erreur temporaire. Utilisez `/ticket close` à la place.',
+                        flags: 64
+                    });
+                } catch (replyError) {
+                    console.error('Erreur reply:', replyError);
+                }
             }
         });
-
+    
+        collector.on('error', error => {
+            console.error('Erreur collector:', error);
+        });
+    
         // Compter les messages dans le ticket
         const messageCollector = ticketChannel.createMessageCollector({
             filter: m => !m.author.bot
