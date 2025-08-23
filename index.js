@@ -2,7 +2,6 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { loadCommands } = require('./handlers/commandHandler');
 const levelSystem = require('./utils/levelSystem');
-const MusicPlayer = require('./utils/musicPlayer');
 
 const client = new Client({
     intents: [
@@ -14,19 +13,12 @@ const client = new Client({
     ]
 });
 
-// Initialiser le système musical
-const musicPlayer = new MusicPlayer(client);
-client.musicPlayer = musicPlayer;
-
 // Charger les commandes
 loadCommands(client);
 
 client.once(Events.ClientReady, () => {
     console.log(`Bot connecté en tant que ${client.user.tag}!`);
     console.log(`Présent sur ${client.guilds.cache.size} serveur(s)`);
-    
-    // Initialiser Lavalink
-    musicPlayer.init();
 });
 
 // Gestionnaire d'interactions (commandes slash)
@@ -44,25 +36,23 @@ client.on(Events.InteractionCreate, async interaction => {
     } catch (error) {
         console.error('Erreur lors de l\'exécution de la commande:', error);
         if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: 'Une erreur est survenue lors de l\'exécution de cette commande!', flags: 64 });
+            await interaction.followUp({ content: 'Une erreur est survenue!', flags: 64 });
         } else {
-            await interaction.reply({ content: 'Une erreur est survenue lors de l\'exécution de cette commande!', flags: 64 });
+            await interaction.reply({ content: 'Une erreur est survenue!', flags: 64 });
         }
     }
 });
 
-// Système de niveaux automatique
+// Système de niveaux
 client.on('messageCreate', message => {
-    if (message.author.bot) return;
-    if (!message.guild) return;
+    if (message.author.bot || !message.guild) return;
 
-    // Éviter le spam - cooldown par utilisateur
     if (!client.xpCooldowns) client.xpCooldowns = new Map();
     const cooldownKey = `${message.guild.id}-${message.author.id}`;
     const now = Date.now();
     
     if (client.xpCooldowns.has(cooldownKey)) {
-        const expirationTime = client.xpCooldowns.get(cooldownKey) + 60000; // 1 minute
+        const expirationTime = client.xpCooldowns.get(cooldownKey) + 60000;
         if (now < expirationTime) return;
     }
 
@@ -71,13 +61,6 @@ client.on('messageCreate', message => {
     
     if (result.levelUp) {
         message.channel.send(`Félicitations ${message.author} ! Tu es maintenant niveau ${result.level} !`);
-    }
-});
-
-// Gestionnaire Lavalink pour les événements audio
-client.on('raw', (d) => {
-    if (musicPlayer && musicPlayer.manager) {
-        musicPlayer.manager.updateVoiceState(d);
     }
 });
 
