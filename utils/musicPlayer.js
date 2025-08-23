@@ -1,5 +1,5 @@
-const { createAudioPlayer, createAudioResource, joinVoiceChannel, AudioPlayerStatus } = require('@discordjs/voice');
-const { google } = require('googleapis');
+const { createAudioPlayer, createAudioResource, joinVoiceChannel, AudioPlayerStatus, VoiceConnectionStatus } = require('@discordjs/voice');
+const ytdl = require('@distube/ytdl-core');
 
 class MusicPlayer {
     constructor() {
@@ -12,8 +12,8 @@ class MusicPlayer {
                 songs: [],
                 connection: null,
                 player: null,
-                volume: 50,
-                playing: false
+                isPlaying: false,
+                volume: 50
             });
         }
         return this.queues.get(guildId);
@@ -24,52 +24,19 @@ class MusicPlayer {
         const voiceChannel = interaction.member.voice.channel;
 
         if (!voiceChannel) {
-            return interaction.reply('Vous devez être dans un canal vocal !');
+            return interaction.reply('❌ Vous devez être dans un canal vocal !');
         }
 
         try {
             await interaction.deferReply();
             
-            let videoUrl;
-            let videoTitle;
-            
-            if (query.includes('youtube.com') || query.includes('youtu.be')) {
-                videoUrl = query;
-                videoTitle = 'Vidéo YouTube';
-            } else {
-                try {
-                    const youtube = google.youtube({
-                        version: 'v3',
-                        auth: process.env.YOUTUBE_API_KEY
-                    });
-                    
-                    const response = await youtube.search.list({
-                        part: 'snippet',
-                        q: query,
-                        type: 'video',
-                        maxResults: 1
-                    });
-                    
-                    if (!response.data.items || response.data.items.length === 0) {
-                        return interaction.editReply('Aucune vidéo trouvée !');
-                    }
-                    
-                    const video = response.data.items[0];
-                    videoUrl = `https://www.youtube.com/watch?v=${video.id.videoId}`;
-                    videoTitle = video.snippet.title;
-                    
-                    console.log('API YouTube - Vidéo trouvée:', videoTitle);
-                } catch (apiError) {
-                    console.error('Erreur API YouTube:', apiError.message);
-                    return interaction.editReply('Erreur lors de la recherche.');
-                }
-            }
-
+            // Rechercher la vidéo
+            const videoInfo = await ytdl.getInfo(query);
             const song = {
-                title: videoTitle,
-                url: videoUrl,
-                duration: 'Durée inconnue',
-                thumbnail: null,
+                title: videoInfo.videoDetails.title,
+                url: videoInfo.videoDetails.video_url,
+                duration: this.formatDuration(parseInt(videoInfo.videoDetails.lengthSeconds)),
+                thumbnail: videoInfo.videoDetails.thumbnails[0]?.url,
                 requestedBy: interaction.user
             };
 
@@ -85,26 +52,22 @@ class MusicPlayer {
                 queue.player = createAudioPlayer();
                 queue.connection.subscribe(queue.player);
 
-                queue.player.on(AudioPlayerStatus.Playing, () => {
-                    console.log('Lecture en cours');
-                    queue.playing = true;
+                queue.connection.on(VoiceConnectionStatus.Ready, () => {
+                    console.log('Connexion vocale prête');
                 });
 
-                queue.player.on(AudioPlayerStatus.Idle, () => {
-                    console.log('Musique terminée');
-                    queue.playing = false;
-                    queue.songs.shift();
-                    this.playNextSong(interaction.guild.id);
+                queue.connection.on(VoiceConnectionStatus.Disconnected, () => {
+                    console.log('Connexion vocale fermée');
                 });
 
                 this.playNextSong(interaction.guild.id);
             }
 
-            await interaction.editReply(`${song.title} ajoutée à la file !`);
+            await interaction.editReply(`🎵 **${song.title}** ajouté à la file d'attente !`);
 
         } catch (error) {
-            console.error('Erreur:', error);
-            await interaction.editReply('Erreur lors de la recherche.');
+            console.error('Erreur lors de la lecture:', error);
+            await interaction.editReply('❌ Erreur lors de la lecture de la musique.');
         }
     }
 
@@ -112,46 +75,131 @@ class MusicPlayer {
         const queue = this.getQueue(guildId);
         
         if (queue.songs.length === 0) {
+            queue.isPlaying = false;
+            console.log('File d\'attente vide');
             return;
         }
 
         const song = queue.songs[0];
-        
+        queue.isPlaying = true;
+
         try {
-            const ytdl = require('ytdl-core');
-            const stream = ytdl(song.url, { filter: 'audioonly', quality: 'lowestaudio' });
-            const resource = createAudioResource(stream);
+            console.log(`Tentative lecture: ${song.title}`);
+            
+            const stream = ytdl(song.url, {
+                filter: 'audioonly',
+                quality: 'highestaudio',
+                highWaterMark: 1 << 25
+            });
+
+            const resource = createAudioResource(stream, {
+                inputType: 'arbitrary',
+            });
+
             queue.player.play(resource);
-            console.log('Lecture:', song.title);
+            console.log(`Lecture démarrée: ${song.title}`);
+
+            queue.player.once(AudioPlayerStatus.Idle, () => {
+                console.log(`Chanson terminée: ${song.title}`);
+                queue.songs.shift();
+                this.playNextSong(guildId);
+            });
+
+            queue.player.once(AudioPlayerStatus.Playing, () => {
+                console.log(`Statut: En cours de lecture`);
+            });
+
+            queue.player.on('error', error => {
+                console.error('Erreur player:', error);
+                queue.songs.shift();
+                this.playNextSong(guildId);
+            });
+
         } catch (error) {
-            console.error('Erreur lecture:', error.message);
+            console.error('Erreur lecture audio:', error);
             queue.songs.shift();
-            if (queue.songs.length > 0) {
-                setTimeout(() => this.playNextSong(guildId), 1000);
-            }
+            setTimeout(() => this.playNextSong(guildId), 1000);
         }
     }
 
-    skip(guildId) {
-        const queue = this.getQueue(guildId);
-        if (queue.player && queue.songs.length > 0) {
-            queue.player.stop();
-            return true;
+    skip(interaction) {
+        const queue = this.getQueue(interaction.guild.id);
+        
+        if (!queue.player || queue.songs.length === 0) {
+            return interaction.reply('❌ Aucune musique en cours !');
         }
-        return false;
+
+        queue.player.stop();
+        interaction.reply('⏭️ Musique passée !');
     }
 
-    stop(guildId) {
-        const queue = this.getQueue(guildId);
+    stop(interaction) {
+        const queue = this.getQueue(interaction.guild.id);
+        
+        if (!queue.player) {
+            return interaction.reply('❌ Aucune musique en cours !');
+        }
+
         queue.songs = [];
-        if (queue.player) queue.player.stop();
-        if (queue.connection) queue.connection.destroy();
-        this.queues.delete(guildId);
+        queue.player.stop();
+        queue.connection?.destroy();
+        this.queues.delete(interaction.guild.id);
+        
+        interaction.reply('⏹️ Musique arrêtée !');
     }
 
-    getCurrentSong(guildId) {
-        const queue = this.getQueue(guildId);
-        return queue.songs[0] || null;
+    getQueue(interaction) {
+        const queue = this.getQueue(interaction.guild.id);
+        
+        if (queue.songs.length === 0) {
+            return interaction.reply('❌ File d\'attente vide !');
+        }
+
+        const current = queue.songs[0];
+        const upcoming = queue.songs.slice(1, 11);
+        
+        let queueString = `**🎵 En cours de lecture :**\n${current.title}\n\n`;
+        
+        if (upcoming.length > 0) {
+            queueString += `**📋 À venir :**\n`;
+            upcoming.forEach((song, index) => {
+                queueString += `${index + 1}. ${song.title}\n`;
+            });
+        }
+
+        interaction.reply(queueString);
+    }
+
+    nowPlaying(interaction) {
+        const queue = this.getQueue(interaction.guild.id);
+        
+        if (!queue.player || queue.songs.length === 0) {
+            return interaction.reply('❌ Aucune musique en cours !');
+        }
+
+        const current = queue.songs[0];
+        interaction.reply(`🎵 **En cours :** ${current.title}`);
+    }
+
+    setVolume(interaction, volume) {
+        const queue = this.getQueue(interaction.guild.id);
+        
+        if (!queue.player) {
+            return interaction.reply('❌ Aucune musique en cours !');
+        }
+
+        if (volume < 0 || volume > 100) {
+            return interaction.reply('❌ Volume doit être entre 0 et 100 !');
+        }
+
+        queue.volume = volume;
+        interaction.reply(`🔊 Volume réglé à ${volume}% !`);
+    }
+
+    formatDuration(seconds) {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
     }
 }
 
