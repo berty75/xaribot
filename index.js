@@ -77,4 +77,23 @@ client.on('messageCreate', message => {
     }
 });
 
+client.on('messageCreate', async message => {
+    if (message.author.bot || !message.guild) return;
+
+    const result = levelSystem.addXP(message.author.id, message.guild.id);
+    
+    if (result && result.levelUp) {
+        const member = message.guild.members.cache.get(message.author.id);
+        const rolesAdded = await levelSystem.checkRoleRewards(member, result.newLevel);
+        
+        let congratsMessage = `Félicitations ${message.author}! Vous avez atteint le niveau ${result.newLevel}!`;
+        
+        if (rolesAdded.length > 0) {
+            congratsMessage += `\nNouveaux rôles obtenus : ${rolesAdded.join(', ')}`;
+        }
+        
+        message.channel.send(congratsMessage);
+    }
+});
+
 client.login(process.env.BOT_TOKEN);
