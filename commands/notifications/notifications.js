@@ -50,7 +50,7 @@ module.exports = {
                     option.setName('time')
                         .setDescription('Heure (format: HH:MM)')
                         .setRequired(true)))
-        .setDefaultMemberPermissions('0x20'), // MANAGE_MESSAGES
+        .setDefaultMemberPermissions('32'), // MANAGE_MESSAGES
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
