@@ -115,7 +115,10 @@ module.exports = {
     async createTicket(interaction, category, supportRole) {
         // Vérifier si l'utilisateur a déjà un ticket ouvert
         const existingTicket = interaction.guild.channels.cache.find(
-            ch => ch.name === `ticket-${interaction.user.id}` && !ch.name.includes('-closed')
+            ch => ch.name === `ticket-${interaction.user.id}` && 
+                  ch.type === ChannelType.GuildText && 
+                  !ch.name.includes('-closed') &&
+                  !ch.name.includes('archived')
         );
 
         if (existingTicket) {
