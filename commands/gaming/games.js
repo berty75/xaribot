@@ -167,20 +167,20 @@ module.exports = {
 
     async handleQuiz(interaction) {
         try {
-            const response = await fetch('https://the-trivia-api.com/v2/questions?limit=1&lang=fr');
+            const response = await fetch('https://quizzapi.jomoreschi.fr/api/v1/quiz?limit=1');
             const data = await response.json();
             
-            if (!data || data.length === 0) {
+            if (!data.quizzes || data.quizzes.length === 0) {
                 return interaction.reply('❌ Impossible de charger une question. Réessayez !');
             }
     
-            const question = data[0];
-            const answers = [...question.incorrectAnswers, question.correctAnswer];
+            const quiz = data.quizzes[0];
+            const answers = [...quiz.badAnswers, quiz.answer];
             const shuffledAnswers = answers.sort(() => Math.random() - 0.5);
-            const correctIndex = shuffledAnswers.indexOf(question.correctAnswer);
+            const correctIndex = shuffledAnswers.indexOf(quiz.answer);
     
             const row = new ActionRowBuilder();
-            shuffledAnswers.slice(0, 4).forEach((answer, index) => {
+            shuffledAnswers.forEach((answer, index) => {
                 row.addComponents(
                     new ButtonBuilder()
                         .setCustomId(`quiz_${index}`)
@@ -189,19 +189,34 @@ module.exports = {
                 );
             });
     
+            const difficultyTranslation = {
+                'facile': 'Facile',
+                'normal': 'Moyen', 
+                'difficile': 'Difficile'
+            };
+    
+            const categoryTranslation = {
+                'culture_generale': 'Culture Générale',
+                'art_litterature': 'Art & Littérature',
+                'tv_cinema': 'TV & Cinéma',
+                'jeux_videos': 'Jeux Vidéo',
+                'musique': 'Musique',
+                'sport': 'Sport',
+                'actu_politique': 'Actualité & Politique'
+            };
+    
             const embed = new EmbedBuilder()
-                .setTitle('🧠 Quiz Culture Générale')
-                .setDescription(question.question.text)
+                .setTitle('🧠 Quiz Culture Française')
+                .setDescription(quiz.question)
                 .addFields(
-                    { name: 'Difficulté', value: question.difficulty, inline: true },
-                    { name: 'Catégorie', value: question.category, inline: true }
+                    { name: 'Difficulté', value: difficultyTranslation[quiz.difficulty] || quiz.difficulty, inline: true },
+                    { name: 'Catégorie', value: categoryTranslation[quiz.category] || quiz.category, inline: true }
                 )
                 .setColor(0x0099FF)
                 .setFooter({ text: '⏰ Vous avez 20 secondes !' });
     
             await interaction.reply({ embeds: [embed], components: [row] });
     
-            // Le reste de ton collector reste identique...
             const filter = i => i.user.id === interaction.user.id && i.customId.startsWith('quiz_');
             const collector = interaction.channel.createMessageComponentCollector({ filter, time: 20000 });
     
@@ -212,10 +227,10 @@ module.exports = {
                 const userData = this.getUserData(i.user.id, i.guild.id);
                 let coinReward = 30, xpReward = 15;
                 
-                if (question.difficulty === 'medium') { 
+                if (quiz.difficulty === 'normal') { 
                     coinReward = 50; 
                     xpReward = 25; 
-                } else if (question.difficulty === 'hard') { 
+                } else if (quiz.difficulty === 'difficile') { 
                     coinReward = 80; 
                     xpReward = 40; 
                 }
@@ -232,7 +247,7 @@ module.exports = {
     
                 const resultEmbed = new EmbedBuilder()
                     .setTitle(isCorrect ? '✅ Bravo !' : '❌ Raté !')
-                    .setDescription(`**Bonne réponse :** ${question.correctAnswer}`)
+                    .setDescription(`**Bonne réponse :** ${quiz.answer}`)
                     .addFields({ 
                         name: '💰 Récompenses', 
                         value: isCorrect ? `+${coinReward} 🪙, +${xpReward} XP` : `+${Math.floor(xpReward/3)} XP (consolation)`, 
@@ -253,7 +268,7 @@ module.exports = {
             });
     
         } catch (error) {
-            console.error('Erreur quiz:', error);
+            console.error('Erreur QuizzAPI:', error);
             interaction.reply('❌ Erreur lors du chargement du quiz.');
         }
     },
@@ -870,28 +885,34 @@ module.exports = {
     }, 
     async handleFacts(interaction) {
         try {
-            const response = await fetch('https://the-trivia-api.com/v2/questions?limit=1&lang=fr');
-            const fact = await response.text();
-    
+            // Récupérer un fait en anglais depuis Numbers API
+            const response = await fetch('http://numbersapi.com/random/trivia');
+            const englishFact = await response.text();
+            
+            // Traduire avec Google Translate API
+            const translateUrl = `https://translate.googleapis.com/translate/v2?key=${process.env.GOOGLE_TRANSLATE_KEY}&q=${encodeURIComponent(englishFact)}&source=en&target=fr`;
+            const translateResponse = await fetch(translateUrl);
+            const translateData = await translateResponse.json();
+            
+            const frenchFact = translateData.data.translations[0].translatedText;
+            
             const embed = new EmbedBuilder()
                 .setTitle('🔢 Fait Amusant')
-                .setDescription(fact)
+                .setDescription(frenchFact)
                 .setColor(0xFFD700)
                 .setTimestamp();
-    
-            // Récompense pour avoir appris quelque chose
+            
+            // Récompenses
             const userData = this.getUserData(interaction.user.id, interaction.guild.id);
             userData.coins = (userData.coins || 0) + 15;
             userData.xp = (userData.xp || 0) + 5;
             this.saveUserData(interaction.user.id, interaction.guild.id, userData);
-    
+            
             embed.addFields({ name: 'Récompense', value: '+15 🪙, +5 XP', inline: false });
-    
             await interaction.reply({ embeds: [embed] });
-    
+            
         } catch (error) {
-            console.error('Erreur Numbers API:', error);
+            console.error('Erreur traduction:', error);
             interaction.reply('❌ Impossible de récupérer un fait amusant. Réessayez !');
         }
     }
-};
