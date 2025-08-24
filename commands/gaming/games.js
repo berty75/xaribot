@@ -167,35 +167,31 @@ module.exports = {
 
     async handleQuiz(interaction) {
         try {
-            // Récupérer une question depuis OpenTriviaDB
-            const response = await fetch('https://opentdb.com/api.php?amount=1&type=multiple');
+            const response = await fetch('https://the-trivia-api.com/v2/questions?limit=1&lang=fr');
             const data = await response.json();
             
-            if (data.response_code !== 0 || data.results.length === 0) {
+            if (!data || data.length === 0) {
                 return interaction.reply('❌ Impossible de charger une question. Réessayez !');
             }
     
-            const question = data.results[0];
-            const answers = [...question.incorrect_answers, question.correct_answer];
-            
-            // Mélanger les réponses
+            const question = data[0];
+            const answers = [...question.incorrectAnswers, question.correctAnswer];
             const shuffledAnswers = answers.sort(() => Math.random() - 0.5);
-            const correctIndex = shuffledAnswers.indexOf(question.correct_answer);
+            const correctIndex = shuffledAnswers.indexOf(question.correctAnswer);
     
-            // Créer les boutons (maximum 4 pour Discord)
             const row = new ActionRowBuilder();
             shuffledAnswers.slice(0, 4).forEach((answer, index) => {
                 row.addComponents(
                     new ButtonBuilder()
                         .setCustomId(`quiz_${index}`)
-                        .setLabel(he.decode(answer).substring(0, 80)) // Limite Discord
+                        .setLabel(answer.substring(0, 80))
                         .setStyle(ButtonStyle.Secondary)
                 );
             });
     
             const embed = new EmbedBuilder()
                 .setTitle('🧠 Quiz Culture Générale')
-                .setDescription(he.decode(question.question))
+                .setDescription(question.question.text)
                 .addFields(
                     { name: 'Difficulté', value: question.difficulty, inline: true },
                     { name: 'Catégorie', value: question.category, inline: true }
@@ -205,6 +201,7 @@ module.exports = {
     
             await interaction.reply({ embeds: [embed], components: [row] });
     
+            // Le reste de ton collector reste identique...
             const filter = i => i.user.id === interaction.user.id && i.customId.startsWith('quiz_');
             const collector = interaction.channel.createMessageComponentCollector({ filter, time: 20000 });
     
@@ -215,7 +212,6 @@ module.exports = {
                 const userData = this.getUserData(i.user.id, i.guild.id);
                 let coinReward = 30, xpReward = 15;
                 
-                // Bonus selon difficulté
                 if (question.difficulty === 'medium') { 
                     coinReward = 50; 
                     xpReward = 25; 
@@ -236,7 +232,7 @@ module.exports = {
     
                 const resultEmbed = new EmbedBuilder()
                     .setTitle(isCorrect ? '✅ Bravo !' : '❌ Raté !')
-                    .setDescription(`**Bonne réponse :** ${he.decode(question.correct_answer)}`)
+                    .setDescription(`**Bonne réponse :** ${question.correctAnswer}`)
                     .addFields({ 
                         name: '💰 Récompenses', 
                         value: isCorrect ? `+${coinReward} 🪙, +${xpReward} XP` : `+${Math.floor(xpReward/3)} XP (consolation)`, 
@@ -257,8 +253,8 @@ module.exports = {
             });
     
         } catch (error) {
-            console.error('Erreur quiz OpenTriviaDB:', error);
-            interaction.reply('❌ Erreur lors du chargement du quiz. Réessayez plus tard !');
+            console.error('Erreur quiz:', error);
+            interaction.reply('❌ Erreur lors du chargement du quiz.');
         }
     },
 
@@ -874,7 +870,7 @@ module.exports = {
     }, 
     async handleFacts(interaction) {
         try {
-            const response = await fetch('http://numbersapi.com/random/trivia');
+            const response = await fetch('https://the-trivia-api.com/v2/questions?limit=1&lang=fr');
             const fact = await response.text();
     
             const embed = new EmbedBuilder()
