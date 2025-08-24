@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const he = require('he');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -49,7 +50,12 @@ module.exports = {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('leaderboard')
-                .setDescription('Classement des collectionneurs')),
+                .setDescription('Classement des collectionneurs'))
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('facts')
+                .setDescription('Faits amusants sur les nombres')),
+        
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
@@ -75,6 +81,8 @@ module.exports = {
                 return this.handleInventory(interaction);
             case 'leaderboard':
                 return this.handleLeaderboard(interaction);
+            case 'facts':
+                return this.handleFacts(interaction);
         }
     },
 
@@ -158,86 +166,100 @@ module.exports = {
     },
 
     async handleQuiz(interaction) {
-        const questions = [
-            {
-                question: "Quelle est la capitale de la France ?",
-                options: ["Paris", "Lyon", "Marseille", "Toulouse"],
-                correct: 0
-            },
-            {
-                question: "Combien y a-t-il de continents ?",
-                options: ["5", "6", "7", "8"],
-                correct: 2
-            },
-            {
-                question: "Qui a peint la Joconde ?",
-                options: ["Picasso", "Van Gogh", "Da Vinci", "Monet"],
-                correct: 2
-            },
-            {
-                question: "Quelle est la planète la plus proche du soleil ?",
-                options: ["Vénus", "Mercure", "Mars", "Terre"],
-                correct: 1
-            },
-            {
-                question: "En quelle année l'homme a-t-il marché sur la lune ?",
-                options: ["1967", "1969", "1971", "1973"],
-                correct: 1
-            },
-            {
-                question: "Quel est le plus grand océan du monde ?",
-                options: ["Atlantique", "Indien", "Arctique", "Pacifique"],
-                correct: 3
+        try {
+            // Récupérer une question depuis OpenTriviaDB
+            const response = await fetch('https://opentdb.com/api.php?amount=1&type=multiple');
+            const data = await response.json();
+            
+            if (data.response_code !== 0 || data.results.length === 0) {
+                return interaction.reply('❌ Impossible de charger une question. Réessayez !');
             }
-        ];
-
-        const randomQuestion = questions[Math.floor(Math.random() * questions.length)];
-
-        const row = new ActionRowBuilder();
-        for (let i = 0; i < randomQuestion.options.length; i++) {
-            row.addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`quiz_${i}`)
-                    .setLabel(randomQuestion.options[i])
-                    .setStyle(ButtonStyle.Secondary)
-            );
+    
+            const question = data.results[0];
+            const answers = [...question.incorrect_answers, question.correct_answer];
+            
+            // Mélanger les réponses
+            const shuffledAnswers = answers.sort(() => Math.random() - 0.5);
+            const correctIndex = shuffledAnswers.indexOf(question.correct_answer);
+    
+            // Créer les boutons (maximum 4 pour Discord)
+            const row = new ActionRowBuilder();
+            shuffledAnswers.slice(0, 4).forEach((answer, index) => {
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`quiz_${index}`)
+                        .setLabel(he.decode(answer).substring(0, 80)) // Limite Discord
+                        .setStyle(ButtonStyle.Secondary)
+                );
+            });
+    
+            const embed = new EmbedBuilder()
+                .setTitle('🧠 Quiz Culture Générale')
+                .setDescription(he.decode(question.question))
+                .addFields(
+                    { name: 'Difficulté', value: question.difficulty, inline: true },
+                    { name: 'Catégorie', value: question.category, inline: true }
+                )
+                .setColor(0x0099FF)
+                .setFooter({ text: '⏰ Vous avez 20 secondes !' });
+    
+            await interaction.reply({ embeds: [embed], components: [row] });
+    
+            const filter = i => i.user.id === interaction.user.id && i.customId.startsWith('quiz_');
+            const collector = interaction.channel.createMessageComponentCollector({ filter, time: 20000 });
+    
+            collector.on('collect', async i => {
+                const choiceIndex = parseInt(i.customId.split('_')[1]);
+                const isCorrect = choiceIndex === correctIndex;
+    
+                const userData = this.getUserData(i.user.id, i.guild.id);
+                let coinReward = 30, xpReward = 15;
+                
+                // Bonus selon difficulté
+                if (question.difficulty === 'medium') { 
+                    coinReward = 50; 
+                    xpReward = 25; 
+                } else if (question.difficulty === 'hard') { 
+                    coinReward = 80; 
+                    xpReward = 40; 
+                }
+    
+                if (isCorrect) {
+                    userData.coins = (userData.coins || 0) + coinReward;
+                    userData.xp = (userData.xp || 0) + xpReward;
+                    userData.quizWins = (userData.quizWins || 0) + 1;
+                } else {
+                    userData.xp = (userData.xp || 0) + Math.floor(xpReward / 3);
+                }
+                
+                this.saveUserData(i.user.id, i.guild.id, userData);
+    
+                const resultEmbed = new EmbedBuilder()
+                    .setTitle(isCorrect ? '✅ Bravo !' : '❌ Raté !')
+                    .setDescription(`**Bonne réponse :** ${he.decode(question.correct_answer)}`)
+                    .addFields({ 
+                        name: '💰 Récompenses', 
+                        value: isCorrect ? `+${coinReward} 🪙, +${xpReward} XP` : `+${Math.floor(xpReward/3)} XP (consolation)`, 
+                        inline: false 
+                    })
+                    .setColor(isCorrect ? 0x00FF00 : 0xFF0000);
+    
+                await i.update({ embeds: [resultEmbed], components: [] });
+            });
+    
+            collector.on('end', collected => {
+                if (collected.size === 0) {
+                    interaction.editReply({ 
+                        content: '⏰ Temps écoulé !', 
+                        components: [] 
+                    });
+                }
+            });
+    
+        } catch (error) {
+            console.error('Erreur quiz OpenTriviaDB:', error);
+            interaction.reply('❌ Erreur lors du chargement du quiz. Réessayez plus tard !');
         }
-
-        const embed = new EmbedBuilder()
-            .setTitle('Quiz')
-            .setDescription(randomQuestion.question)
-            .setColor(0x0099FF);
-
-        await interaction.reply({ embeds: [embed], components: [row] });
-
-        const filter = i => i.user.id === interaction.user.id && i.customId.startsWith('quiz_');
-        const collector = interaction.channel.createMessageComponentCollector({ filter, time: 15000 });
-
-        collector.on('collect', async i => {
-            const choiceIndex = parseInt(i.customId.split('_')[1]);
-            const isCorrect = choiceIndex === randomQuestion.correct;
-
-            const userData = this.getUserData(i.user.id, i.guild.id);
-            if (isCorrect) {
-                userData.coins = (userData.coins || 0) + 50;
-                userData.xp = (userData.xp || 0) + 20;
-            } else {
-                userData.xp = (userData.xp || 0) + 5;
-            }
-            this.saveUserData(i.user.id, i.guild.id, userData);
-
-            const resultEmbed = new EmbedBuilder()
-                .setTitle(isCorrect ? 'Correct !' : 'Incorrect !')
-                .setDescription(`La bonne réponse était : **${randomQuestion.options[randomQuestion.correct]}**`)
-                .setColor(isCorrect ? 0x00FF00 : 0xFF0000);
-
-            if (isCorrect) {
-                resultEmbed.addFields({ name: 'Récompense', value: '+50 pièces, +20 XP', inline: false });
-            }
-
-            await i.update({ embeds: [resultEmbed], components: [] });
-            collector.stop();
-        });
     },
 
     async handleMemory(interaction) {
@@ -849,5 +871,31 @@ module.exports = {
         }
         
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    }, 
+    async handleFacts(interaction) {
+        try {
+            const response = await fetch('http://numbersapi.com/random/trivia');
+            const fact = await response.text();
+    
+            const embed = new EmbedBuilder()
+                .setTitle('🔢 Fait Amusant')
+                .setDescription(fact)
+                .setColor(0xFFD700)
+                .setTimestamp();
+    
+            // Récompense pour avoir appris quelque chose
+            const userData = this.getUserData(interaction.user.id, interaction.guild.id);
+            userData.coins = (userData.coins || 0) + 15;
+            userData.xp = (userData.xp || 0) + 5;
+            this.saveUserData(interaction.user.id, interaction.guild.id, userData);
+    
+            embed.addFields({ name: 'Récompense', value: '+15 🪙, +5 XP', inline: false });
+    
+            await interaction.reply({ embeds: [embed] });
+    
+        } catch (error) {
+            console.error('Erreur Numbers API:', error);
+            interaction.reply('❌ Impossible de récupérer un fait amusant. Réessayez !');
+        }
     }
 };
