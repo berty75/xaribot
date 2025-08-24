@@ -885,37 +885,28 @@ module.exports = {
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
     }, 
     async handleFacts(interaction) {
-    try {
-        const factsFrancais = [
-            "La France compte 67 millions d'habitants",
-            "Paris a été fondée au 3ème siècle avant J.-C.",
-            "Le français est parlé par 280 millions de personnes dans le monde",
-            "La baguette de pain française pèse en moyenne 250 grammes",
-            "La Tour Eiffel mesure 324 mètres de hauteur",
-            "Il y a plus de 400 variétés de fromages français",
-            "Le croissant a été inventé en Autriche, pas en France",
-            "La France est le pays le plus visité au monde avec 89 millions de touristes par an"
-        ];
-        
-        const randomFact = factsFrancais[Math.floor(Math.random() * factsFrancais.length)];
-        
-        const embed = new EmbedBuilder()
-            .setTitle('🇫🇷 Fait Amusant')
-            .setDescription(randomFact)
-            .setColor(0xFFD700)
-            .setTimestamp();
-        
-        const userData = this.getUserData(interaction.user.id, interaction.guild.id);
-        userData.coins = (userData.coins || 0) + 15;
-        userData.xp = (userData.xp || 0) + 5;
-        this.saveUserData(interaction.user.id, interaction.guild.id, userData);
-        
-        embed.addFields({ name: 'Récompense', value: '+15 🪙, +5 XP', inline: false });
-        await interaction.reply({ embeds: [embed] });
-        
-    } catch (error) {
-        console.error('Erreur Facts:', error);
-        interaction.reply('❌ Impossible de récupérer un fait amusant. Réessayez !');
+        try {
+            // Numbers API retourne du texte simple, pas du JSON
+            const response = await fetch('http://numbersapi.com/random/trivia');
+            const englishFact = await response.text();
+            
+            const embed = new EmbedBuilder()
+                .setTitle('🔢 Fait Amusant')
+                .setDescription(englishFact) // Numbers API donne des faits lisibles
+                .setColor(0xFFD700)
+                .setTimestamp();
+            
+            const userData = this.getUserData(interaction.user.id, interaction.guild.id);
+            userData.coins = (userData.coins || 0) + 15;
+            userData.xp = (userData.xp || 0) + 5;
+            this.saveUserData(interaction.user.id, interaction.guild.id, userData);
+            
+            embed.addFields({ name: 'Récompense', value: '+15 🪙, +5 XP', inline: false });
+            await interaction.reply({ embeds: [embed] });
+            
+        } catch (error) {
+            console.error('Erreur Numbers API:', error);
+            interaction.reply('❌ Impossible de récupérer un fait amusant. Réessayez !');
+        }
     }
-}
 }; 
