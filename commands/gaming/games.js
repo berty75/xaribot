@@ -884,7 +884,7 @@ module.exports = {
         
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
     }, 
-async handleFacts(interaction) {
+    async handleFacts(interaction) {
     try {
         const factsFrancais = [
             "La France compte 67 millions d'habitants",
