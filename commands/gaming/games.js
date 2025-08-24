@@ -271,6 +271,7 @@ module.exports = {
             console.error('Erreur QuizzAPI:', error);
             interaction.reply('❌ Erreur lors du chargement du quiz.');
         }
+    
     },
 
     async handleMemory(interaction) {
@@ -883,36 +884,4 @@ module.exports = {
         
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
     }, 
-    async handleFacts(interaction) {
-        try {
-            // Récupérer un fait en anglais depuis Numbers API
-            const response = await fetch('http://numbersapi.com/random/trivia');
-            const englishFact = await response.text();
-            
-            // Traduire avec Google Translate API
-            const translateUrl = `https://translate.googleapis.com/translate/v2?key=${process.env.GOOGLE_TRANSLATE_KEY}&q=${encodeURIComponent(englishFact)}&source=en&target=fr`;
-            const translateResponse = await fetch(translateUrl);
-            const translateData = await translateResponse.json();
-            
-            const frenchFact = translateData.data.translations[0].translatedText;
-            
-            const embed = new EmbedBuilder()
-                .setTitle('🔢 Fait Amusant')
-                .setDescription(frenchFact)
-                .setColor(0xFFD700)
-                .setTimestamp();
-            
-            // Récompenses
-            const userData = this.getUserData(interaction.user.id, interaction.guild.id);
-            userData.coins = (userData.coins || 0) + 15;
-            userData.xp = (userData.xp || 0) + 5;
-            this.saveUserData(interaction.user.id, interaction.guild.id, userData);
-            
-            embed.addFields({ name: 'Récompense', value: '+15 🪙, +5 XP', inline: false });
-            await interaction.reply({ embeds: [embed] });
-            
-        } catch (error) {
-            console.error('Erreur traduction:', error);
-            interaction.reply('❌ Impossible de récupérer un fait amusant. Réessayez !');
-        }
-    }
+};
